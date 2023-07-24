@@ -1,13 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 
 	"github.com/gezimbll/copr_builds/rpm"
@@ -31,15 +31,19 @@ type CoprBuild struct {
 	Who     string `json:"who"`
 }
 
-func main() {
+const (
+	FedoraBroker = "amqps://fedora:@rabbitmq.fedoraproject.org/%2Fpublic_pubsub"
+)
+
+func setupTLS() (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair("/etc/fedora-messaging/fedora-cert.pem", "/etc/fedora-messaging/fedora-key.pem")
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	caCert, err := os.ReadFile("/etc/fedora-messaging/cacert.pem")
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
@@ -48,17 +52,113 @@ func main() {
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      caCertPool,
 	}
-	conn, err := amqp.DialTLS_ExternalAuth("amqps://fedora:@rabbitmq.fedoraproject.org/%2Fpublic_pubsub", tlsConfig)
-	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
-	}
+	return tlsConfig, nil
+}
 
+func setupConn(tls *tls.Config) (*amqp.Connection, *amqp.Channel, error) {
+	conn, err := amqp.DialTLS_ExternalAuth(FedoraBroker, tls)
+	if err != nil {
+		return nil, nil, err
+	}
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Failed to open a channel: %v", err)
+		return nil, nil, err
+	}
+	return conn, ch, err
+}
+
+func consumeMessage(ctx context.Context, ch *amqp.Channel, queueName string) {
+	errChan := make(chan error)
+	fileChan := make(chan string)
+
+	go func() {
+		for {
+			select {
+			case err := <-errChan:
+				log.Println("Error:", err)
+			case file := <-fileChan:
+				log.Println("File created:", file)
+			case <-ctx.Done():
+				log.Println("Stopping error and file logging due to context cancellation")
+				return
+			}
+		}
+	}()
+
+	msgs, err := ch.Consume(
+		queueName,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Println("Error consuming messages:", err)
+		return
 	}
 
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	c := &CoprBuild{}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Stopping message consumption due to context cancellation")
+			return
+		case msg, ok := <-msgs:
+			if !ok {
+				return
+			}
+			processMessage(errChan, fileChan, msg, json, c)
+		}
+	}
+}
+
+func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, json jsoniter.API, c *CoprBuild) {
+	//fmt.Println(string(msg.Body))
+	//times := time.Now()
+	defer msg.Ack(false)
+	var owner string
+	iter := jsoniter.ParseBytes(json, msg.Body)
+
+	for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
+		if field == "owner" {
+			owner = iter.ReadString()
+			break
+		}
+		iter.Skip()
+
+	}
+	if owner != "gzim07" {
+		//fmt.Println(time.Since(times).Nanoseconds())
+		return
+	}
+	if err := json.Unmarshal(msg.Body, c); err != nil {
+		return
+	}
+	if c.Version != "" {
+		go rpm.GenerateFiles(errc, filech, c.Owner, c.Chroot, c.Copr, c.Version, c.Build)
+	}
+}
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tlsConfig, err := setupTLS()
+	if err != nil {
+		log.Fatal(err)
+	}
+	conn, ch, err := setupConn(tlsConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	defer ch.Close()
+
 	queueUUID := uuid.New()
+
 	queue, err := ch.QueueDeclare(
 		queueUUID.String(),
 		false,
@@ -83,79 +183,14 @@ func main() {
 		return
 	}
 
-	msgs, err := ch.Consume(
-		queue.Name,
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		fmt.Println("Error consuming messages:", err)
-		return
-	}
-	var wg sync.WaitGroup
-	done := make(chan bool)
-	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	c := &CoprBuild{}
+	go consumeMessage(ctx, ch, queue.Name)
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case msg, ok := <-msgs:
-					if !ok {
-						return
-					}
-					iter := jsoniter.ParseBytes(json, msg.Body)
-					var owner string
-					for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
-						if field == "owner" {
-							owner = iter.ReadString()
-							break
-						} else {
-							iter.Skip()
-						}
-					}
-					if owner == "gzim07" {
-						if err := json.Unmarshal(msg.Body, c); err != nil {
-							log.Printf("error marshalling ,<%v>", err)
-						}
-						if c.Version != "" {
-							val, err := rpm.GenerateFiles(c.Chroot, c.Copr)
-							if err != nil {
-								log.Printf("error generating files ,<%v>", err)
-							}
-							fmt.Printf("Generated package %s\n", val)
-						}
-					}
-				case <-done:
-					return
-				}
-			}
-		}()
-	}
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigs
-		log.Println("Signal received. Shutting down...")
-		close(done)
-	}()
 
-	wg.Wait()
+	<-sigs
+	cancel()
+
 	log.Println("All workers have finished processing. Closing connections...")
-
-	if err := ch.Close(); err != nil {
-		log.Printf("Failed to close channel: %v", err)
-	}
-	if err := conn.Close(); err != nil {
-		log.Printf("Failed to close connection: %v", err)
-	}
 	log.Println("Connections closed. Exiting...")
-
 }
