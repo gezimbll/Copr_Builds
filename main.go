@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"log"
+	"log/syslog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -144,6 +145,14 @@ func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, 
 }
 
 func main() {
+
+	logwriter, err := syslog.New(syslog.LOG_NOTICE, "copr_builds")
+	if err != nil {
+		log.Fatal("Failed to initialize syslog writer: ", err)
+	}
+
+	log.SetOutput(logwriter)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	tlsConfig, err := setupTLS()
