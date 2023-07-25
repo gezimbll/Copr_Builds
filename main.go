@@ -34,7 +34,8 @@ const (
 	Key    = "/etc/fedora-messaging/fedora-key.pem"
 
 	DownloadUrl = "https://download.copr.fedorainfracloud.org/results/"
-	Prefix      = "cgrates-"
+	CGRPrefix   = "cgrates-"
+	CGRSuffix   = "-cgrates"
 	RpmSuffix   = "rpm"
 	ArchBuild   = "x86_64"
 	Current     = "cgrates-current"
@@ -163,7 +164,7 @@ func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, 
 	}
 }
 func generateFiles(errc chan<- error, filech chan<- string, owner, chroot, project string, version string, build int) {
-	urlPath, err := url.JoinPath(DownloadUrl, owner, project, chroot, fmt.Sprintf("0%v", build)+"-cgrates", Prefix+strings.Join([]string{version, ArchBuild, RpmSuffix}, "."))
+	urlPath, err := url.JoinPath(DownloadUrl, owner, project, chroot, fmt.Sprintf("0%v", build)+CGRSuffix, CGRPrefix+strings.Join([]string{version, ArchBuild, RpmSuffix}, "."))
 	if err != nil {
 		errc <- err
 		return
@@ -201,7 +202,7 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 			return
 		}
 	}
-	filePath = filepath.Join(dirPath, Prefix+fileName)
+	filePath = filepath.Join(dirPath, CGRPrefix+fileName)
 	if file, err = os.Create(filePath); err != nil {
 		return
 	}
