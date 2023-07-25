@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/gezimbll/copr_builds/rpm"
-	"github.com/google/uuid"
+	"github.com/gezimbll/copr_builds/utils"
 	jsoniter "github.com/json-iterator/go"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -32,17 +32,13 @@ type CoprBuild struct {
 	Who     string `json:"who"`
 }
 
-const (
-	FedoraBroker = "amqps://fedora:@rabbitmq.fedoraproject.org/%2Fpublic_pubsub"
-)
-
 func setupTLS() (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair("/etc/fedora-messaging/fedora-cert.pem", "/etc/fedora-messaging/fedora-key.pem")
+	cert, err := tls.LoadX509KeyPair(utils.Cert, utils.Key)
 	if err != nil {
 		return nil, err
 	}
 
-	caCert, err := os.ReadFile("/etc/fedora-messaging/cacert.pem")
+	caCert, err := os.ReadFile(utils.CaCert)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +53,7 @@ func setupTLS() (*tls.Config, error) {
 }
 
 func setupConn(tls *tls.Config) (*amqp.Connection, *amqp.Channel, error) {
-	conn, err := amqp.DialTLS_ExternalAuth(FedoraBroker, tls)
+	conn, err := amqp.DialTLS_ExternalAuth(utils.FedoraBroker, tls)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -118,8 +114,7 @@ func consumeMessage(ctx context.Context, ch *amqp.Channel, queueName string) {
 }
 
 func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, json jsoniter.API, c *CoprBuild) {
-	//fmt.Println(string(msg.Body))
-	//times := time.Now()
+
 	defer msg.Ack(false)
 	var owner string
 	iter := jsoniter.ParseBytes(json, msg.Body)
@@ -130,10 +125,8 @@ func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, 
 			break
 		}
 		iter.Skip()
-
 	}
-	if owner != "gzim07" {
-		//fmt.Println(time.Since(times).Nanoseconds())
+	if owner != utils.Owner {
 		return
 	}
 	if err := json.Unmarshal(msg.Body, c); err != nil {
@@ -166,10 +159,8 @@ func main() {
 	defer conn.Close()
 	defer ch.Close()
 
-	queueUUID := uuid.New()
-
 	queue, err := ch.QueueDeclare(
-		queueUUID.String(),
+		utils.NewUuid(),
 		false,
 		true,
 		false,
@@ -182,8 +173,8 @@ func main() {
 	}
 	err = ch.QueueBind(
 		queue.Name,
-		"org.fedoraproject.prod.copr.build.end",
-		"amq.topic",
+		utils.RoutingKey,
+		utils.Exchange,
 		false,
 		nil,
 	)

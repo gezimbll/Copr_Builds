@@ -9,24 +9,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-const (
-	DownloadUrl = "https://download.copr.fedorainfracloud.org/results/"
-	Prefix      = "cgrates-"
-	RpmSuffix   = "rpm"
-	ArchBuild   = "x86_64"
-	Current     = "cgrates-current"
-	PackageDir  = "/var/packages/rpm"
+	"github.com/gezimbll/copr_builds/utils"
 )
 
 func GenerateFiles(errc chan<- error, filech chan<- string, owner, chroot, project string, version string, build int) {
-	urlPath, err := url.JoinPath(DownloadUrl, owner, project, chroot, fmt.Sprintf("0%v", build)+"-cgrates", Prefix+strings.Join([]string{version, ArchBuild, RpmSuffix}, "."))
+	urlPath, err := url.JoinPath(utils.DownloadUrl, owner, project, chroot, fmt.Sprintf("0%v", build)+"-cgrates", utils.Prefix+strings.Join([]string{version, utils.ArchBuild, utils.RpmSuffix}, "."))
 	if err != nil {
 		errc <- err
 		return
 	}
-	file, err := DownloadFile(strings.Join([]string{version, ArchBuild, RpmSuffix}, "."), project, chroot, urlPath)
+	file, err := DownloadFile(strings.Join([]string{version, utils.ArchBuild, utils.RpmSuffix}, "."), project, chroot, urlPath)
 	if err != nil {
 		errc <- err
 		return
@@ -50,13 +43,13 @@ func DownloadFile(fileName, projectName, chroot, url string) (filePath string, e
 	if err = os.MkdirAll(dirPath, 0775); err != nil {
 		return
 	}
-	curr := filepath.Join(dirPath, strings.Join([]string{Current, RpmSuffix}, "."))
+	curr := filepath.Join(dirPath, strings.Join([]string{utils.Current, utils.RpmSuffix}, "."))
 	if _, err = os.Stat(curr); err == nil {
 		if err = os.Remove(curr); err != nil {
 			return
 		}
 	}
-	filePath = filepath.Join(dirPath, Prefix+fileName)
+	filePath = filepath.Join(dirPath, utils.Prefix+fileName)
 	if file, err = os.Create(filePath); err != nil {
 		return
 	}
