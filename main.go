@@ -5,16 +5,39 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"log"
 	"log/syslog"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
-	"github.com/gezimbll/copr_builds/rpm"
-	"github.com/gezimbll/copr_builds/utils"
+	"github.com/google/uuid"
 	jsoniter "github.com/json-iterator/go"
 	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+const (
+	FedoraBroker = "amqps://fedora:@rabbitmq.fedoraproject.org/%2Fpublic_pubsub"
+	Exchange     = "amq.topic"
+	RoutingKey   = "org.fedoraproject.prod.copr.build.end"
+	Owner        = "gzim07"
+
+	//cacert and key paths
+	CaCert = "/etc/fedora-messaging/cacert.pem"
+	Cert   = "/etc/fedora-messaging/fedora-cert.pem"
+	Key    = "/etc/fedora-messaging/fedora-key.pem"
+
+	DownloadUrl = "https://download.copr.fedorainfracloud.org/results/"
+	Prefix      = "cgrates-"
+	RpmSuffix   = "rpm"
+	ArchBuild   = "x86_64"
+	Current     = "cgrates-current"
+	PackageDir  = "/var/packages/rpm"
 )
 
 type CoprBuild struct {
@@ -32,13 +55,18 @@ type CoprBuild struct {
 	Who     string `json:"who"`
 }
 
+func newUuid() string {
+	queueUUID := uuid.New()
+	return queueUUID.String()
+}
+
 func setupTLS() (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair(utils.Cert, utils.Key)
+	cert, err := tls.LoadX509KeyPair(Cert, Key)
 	if err != nil {
 		return nil, err
 	}
 
-	caCert, err := os.ReadFile(utils.CaCert)
+	caCert, err := os.ReadFile(CaCert)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +81,7 @@ func setupTLS() (*tls.Config, error) {
 }
 
 func setupConn(tls *tls.Config) (*amqp.Connection, *amqp.Channel, error) {
-	conn, err := amqp.DialTLS_ExternalAuth(utils.FedoraBroker, tls)
+	conn, err := amqp.DialTLS_ExternalAuth(FedoraBroker, tls)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -126,15 +154,69 @@ func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, 
 		}
 		iter.Skip()
 	}
-	if owner != utils.Owner {
+	if owner != Owner {
 		return
 	}
 	if err := json.Unmarshal(msg.Body, c); err != nil {
 		return
 	}
 	if c.Version != "" {
-		go rpm.GenerateFiles(errc, filech, c.Owner, c.Chroot, c.Copr, c.Version, c.Build)
+		go generateFiles(errc, filech, c.Owner, c.Chroot, c.Copr, c.Version, c.Build)
 	}
+}
+func generateFiles(errc chan<- error, filech chan<- string, owner, chroot, project string, version string, build int) {
+	urlPath, err := url.JoinPath(DownloadUrl, owner, project, chroot, fmt.Sprintf("0%v", build)+"-cgrates", Prefix+strings.Join([]string{version, ArchBuild, RpmSuffix}, "."))
+	if err != nil {
+		errc <- err
+		return
+	}
+	file, err := downloadFile(strings.Join([]string{version, ArchBuild, RpmSuffix}, "."), project, chroot, urlPath)
+	if err != nil {
+		errc <- err
+		return
+	}
+	filech <- file
+}
+
+func downloadFile(fileName, projectName, chroot, url string) (filePath string, err error) {
+	var (
+		resp *http.Response
+		file *os.File
+	)
+	resp, err = http.Get(url)
+	if err != nil {
+		return
+	}
+	log.Println(url)
+	defer resp.Body.Close()
+
+	dirPath := filepath.Join("/var/packages/rpm", projectName, chroot)
+	if _, err = os.Stat(dirPath); os.IsNotExist(err) {
+		fmt.Println("Mkdir")
+		if err = os.MkdirAll(dirPath, 0775); err != nil {
+			return
+		}
+	}
+
+	curr := filepath.Join(dirPath, strings.Join([]string{Current, RpmSuffix}, "."))
+	if _, err = os.Stat(curr); err == nil {
+		fmt.Println("removing symlink")
+		if err = os.Remove(curr); err != nil {
+			return
+		}
+	}
+	filePath = filepath.Join(dirPath, Prefix+fileName)
+	if file, err = os.Create(filePath); err != nil {
+		return
+	}
+	if _, err = io.Copy(file, resp.Body); err != nil {
+		return
+	}
+	err = os.Symlink(filePath, curr)
+	if err != nil {
+		log.Fatalf("Failed to create symlink: %s", err)
+	}
+	return
 }
 
 func main() {
@@ -160,7 +242,7 @@ func main() {
 	defer ch.Close()
 
 	queue, err := ch.QueueDeclare(
-		utils.NewUuid(),
+		newUuid(),
 		false,
 		true,
 		false,
@@ -173,8 +255,8 @@ func main() {
 	}
 	err = ch.QueueBind(
 		queue.Name,
-		utils.RoutingKey,
-		utils.Exchange,
+		RoutingKey,
+		Exchange,
 		false,
 		nil,
 	)
