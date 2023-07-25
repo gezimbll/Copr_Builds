@@ -46,7 +46,6 @@ type CoprBuild struct {
 	Copr    string `json:"copr"`
 	IP      string `json:"ip"`
 	Owner   string `json:"owner"`
-	PID     int    `json:"pid"`
 	Pkg     string `json:"pkg"`
 	Status  int    `json:"status"`
 	User    string `json:"user"`
@@ -187,12 +186,11 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 	if err != nil {
 		return
 	}
-	log.Println(url)
+	log.Printf("Making a Request on %v\n", url)
 	defer resp.Body.Close()
 
 	dirPath := filepath.Join("/var/packages/rpm", projectName, chroot)
 	if _, err = os.Stat(dirPath); os.IsNotExist(err) {
-		fmt.Println("Mkdir")
 		if err = os.MkdirAll(dirPath, 0775); err != nil {
 			return
 		}
@@ -200,7 +198,6 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 
 	curr := filepath.Join(dirPath, strings.Join([]string{Current, RpmSuffix}, "."))
 	if _, err = os.Stat(curr); err == nil {
-		fmt.Println("removing symlink")
 		if err = os.Remove(curr); err != nil {
 			return
 		}
@@ -221,7 +218,7 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 
 func main() {
 
-	logwriter, err := syslog.New(syslog.LOG_NOTICE, "copr_builds")
+	logwriter, err := syslog.New(syslog.LOG_NOTICE, "<copr_build>")
 	if err != nil {
 		log.Fatal("Failed to initialize syslog writer: ", err)
 	}
@@ -250,7 +247,7 @@ func main() {
 		nil,
 	)
 	if err != nil {
-		fmt.Println("Error declaring queue:", err)
+		log.Println("Error declaring queue:", err)
 		return
 	}
 	err = ch.QueueBind(
@@ -261,7 +258,7 @@ func main() {
 		nil,
 	)
 	if err != nil {
-		fmt.Println("Error binding queue:", err)
+		log.Println("Error binding queue:", err)
 		return
 	}
 
@@ -272,7 +269,5 @@ func main() {
 
 	<-sigs
 	cancel()
-
-	log.Println("All workers have finished processing. Closing connections...")
 	log.Println("Connections closed. Exiting...")
 }
