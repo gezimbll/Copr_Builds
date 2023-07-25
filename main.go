@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -215,8 +216,9 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 }
 
 func main() {
-
-	logwriter, err := syslog.New(syslog.LOG_NOTICE, "copr_builds")
+	logName := flag.String("log_name", "", "Logger file name ")
+	flag.Parse()
+	logwriter, err := syslog.New(syslog.LOG_NOTICE, *logName)
 	if err != nil {
 		log.Fatal("Failed to initialize syslog writer: ", err)
 	}
