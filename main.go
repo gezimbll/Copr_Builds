@@ -40,6 +40,7 @@ const (
 	ArchBuild   = "x86_64"
 	Current     = "cgrates-current"
 	PackageDir  = "/var/packages/rpm"
+	PkgOwner    = "owner"
 )
 
 type CoprBuild struct {
@@ -146,7 +147,7 @@ func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, 
 	iter := jsoniter.ParseBytes(json, msg.Body)
 
 	for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
-		if field == "owner" {
+		if field == PkgOwner {
 			owner = iter.ReadString()
 			break
 		}
@@ -223,7 +224,6 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize syslog writer: ", err)
 	}
-
 	log.SetOutput(logwriter)
 
 	ctx, cancel := context.WithCancel(context.Background())
