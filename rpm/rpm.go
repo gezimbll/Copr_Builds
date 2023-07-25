@@ -40,11 +40,16 @@ func DownloadFile(fileName, projectName, chroot, url string) (filePath string, e
 	defer resp.Body.Close()
 
 	dirPath := filepath.Join("/var/packages/rpm", projectName, chroot)
-	if err = os.MkdirAll(dirPath, 0775); err != nil {
-		return
+	if _, err = os.Stat(dirPath); os.IsNotExist(err) {
+		fmt.Println("Mkdir")
+		if err = os.MkdirAll(dirPath, 0775); err != nil {
+			return
+		}
 	}
+
 	curr := filepath.Join(dirPath, strings.Join([]string{utils.Current, utils.RpmSuffix}, "."))
 	if _, err = os.Stat(curr); err == nil {
+		fmt.Println("removing symlink")
 		if err = os.Remove(curr); err != nil {
 			return
 		}
