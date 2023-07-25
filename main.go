@@ -122,10 +122,8 @@ func consumeMessage(ctx context.Context, ch *amqp.Channel, queueName string) {
 		log.Println("Error consuming messages:", err)
 		return
 	}
-
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
 	c := &CoprBuild{}
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -141,7 +139,6 @@ func consumeMessage(ctx context.Context, ch *amqp.Channel, queueName string) {
 }
 
 func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, json jsoniter.API, c *CoprBuild) {
-
 	defer msg.Ack(false)
 	var owner string
 	iter := jsoniter.ParseBytes(json, msg.Body)
@@ -159,7 +156,7 @@ func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, 
 	if err := json.Unmarshal(msg.Body, c); err != nil {
 		return
 	}
-	fmt.Println(c.Status)
+
 	if c.Version != "" {
 		go generateFiles(errc, filech, c.Owner, c.Chroot, c.Copr, c.Version, c.Build)
 	}
@@ -190,7 +187,7 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 	log.Printf("Making a Request on %v\n", url)
 	defer resp.Body.Close()
 
-	dirPath := filepath.Join("/var/packages/rpm", projectName, chroot)
+	dirPath := filepath.Join(PackageDir, projectName, chroot)
 	if _, err = os.Stat(dirPath); os.IsNotExist(err) {
 		if err = os.MkdirAll(dirPath, 0775); err != nil {
 			return
