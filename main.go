@@ -219,7 +219,7 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 
 func main() {
 
-	logwriter, err := syslog.New(syslog.LOG_NOTICE, "copr_build")
+	logwriter, err := syslog.New(syslog.LOG_NOTICE, "copr_builds")
 	if err != nil {
 		log.Fatal("Failed to initialize syslog writer: ", err)
 	}
