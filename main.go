@@ -218,7 +218,7 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 func main() {
 	logName := flag.String("log_name", "", "Logger file name ")
 	flag.Parse()
-	logwriter, err := syslog.New(syslog.LOG_NOTICE, *logName)
+	logwriter, err := syslog.New(syslog.LOG_NOTICE, fmt.Sprintf("<%s>", *logName))
 	if err != nil {
 		log.Fatal("Failed to initialize syslog writer: ", err)
 	}
