@@ -36,10 +36,10 @@ func DownloadFile(fileName, projectName, chroot, url string) (filePath string, e
 	if err != nil {
 		return
 	}
-	fmt.Println(url)
+	log.Println(url)
 	defer resp.Body.Close()
-	tmp := os.TempDir()
-	dirPath := filepath.Join(tmp, projectName, chroot)
+
+	dirPath := filepath.Join("/var/packages/rpm", projectName, chroot)
 	if err = os.MkdirAll(dirPath, 0775); err != nil {
 		return
 	}
