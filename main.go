@@ -159,6 +159,7 @@ func processMessage(errc chan<- error, filech chan<- string, msg amqp.Delivery, 
 	if err := json.Unmarshal(msg.Body, c); err != nil {
 		return
 	}
+	fmt.Println(c.Status)
 	if c.Version != "" {
 		go generateFiles(errc, filech, c.Owner, c.Chroot, c.Copr, c.Version, c.Build)
 	}
@@ -218,7 +219,7 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 
 func main() {
 
-	logwriter, err := syslog.New(syslog.LOG_NOTICE, "<copr_build>")
+	logwriter, err := syslog.New(syslog.LOG_NOTICE, "copr_build")
 	if err != nil {
 		log.Fatal("Failed to initialize syslog writer: ", err)
 	}
