@@ -198,11 +198,10 @@ func downloadFile(fileName, projectName, chroot, url string) (filePath string, e
 	}
 
 	curr := filepath.Join(dirPath, strings.Join([]string{Current, RpmSuffix}, "."))
-	if _, err = os.Stat(curr); err == nil {
-		if err = os.Remove(curr); err != nil {
-			return
-		}
+	if err = os.Remove(curr); err != nil && !os.IsNotExist(err) {
+		return
 	}
+
 	filePath = filepath.Join(dirPath, CGRPrefix+fileName)
 	if file, err = os.Create(filePath); err != nil {
 		return
